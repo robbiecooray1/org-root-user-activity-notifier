@@ -1,0 +1,34 @@
+AWSTemplateFormatVersion: 2010-09-09
+Parameters:
+  RootActivitySNSTopicSubscriptionEmail:
+    Type: String
+  OrganizationId:
+    Type: String
+Resources:
+  RootActivitySNSTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      DisplayName: Root-ALERT
+      Subscription:
+        - Endpoint: !Ref RootActivitySNSTopicSubscriptionEmail
+          Protocol: email
+  RootActivitySNSTopicPolicy:
+    Type: AWS::SNS::TopicPolicy
+    Properties:
+      PolicyDocument:
+        Id: RootActivitySNSTopicPolicy
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            AWS: "*"
+          Action: sns:Publish
+          Resource: !Ref RootActivitySNSTopic
+          Condition:
+            StringEquals:
+             aws:PrincipalOrgID: !Ref OrganizationId
+      Topics:
+      - !Ref RootActivitySNSTopic
+Outputs:
+  RootActivitySNSTopicArn:
+    Value: !Ref RootActivitySNSTopic

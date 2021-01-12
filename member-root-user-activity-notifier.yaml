@@ -1,0 +1,96 @@
+AWSTemplateFormatVersion: 2010-09-09
+Parameters:
+  RootActivitySNSTopic:
+    Type: String
+Resources:
+  RootActivityLambdaRole: 
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument : 
+        Version: 2012-10-17
+        Statement: 
+          - Effect: Allow
+            Principal: 
+              Service:
+              - lambda.amazonaws.com
+            Action: 
+            - sts:AssumeRole
+      Policies:
+        - PolicyName: RootActivityLambdaPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                - sns:Publish
+                Resource: !Ref RootActivitySNSTopic
+              - Effect: Allow
+                Action:
+                 - logs:CreateLogGroup
+                 - logs:CreateLogStream
+                 - logs:PutLogEvents
+                Resource: 
+                 - arn:aws:logs:*:*:*
+  RootActivityLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Role: !GetAtt RootActivityLambdaRole.Arn
+      Runtime: nodejs12.x
+      Handler: index.handler
+      Environment:
+        Variables:
+          SNSARN: !Ref RootActivitySNSTopic
+      Code:
+        ZipFile: |
+          var aws = require('aws-sdk')
+          var sns = new aws.SNS();
+          exports.handler = function(event, context) {
+              const eventName = event.detail.eventName;
+              const snsARN = process.env.SNSARN;
+              const user = event.detail.userIdentity.type;
+              const accountAlias = JSON.stringify(context.invokedFunctionArn).split(':')[4];
+
+              console.log("Event: ", event);
+              console.log("eventName: ", eventName);
+              console.log("snsARN: ", snsARN);
+              console.log("user: ", user);
+              console.log("accountAlias: ", accountAlias);
+              
+              const params = {
+                TargetArn: snsARN,
+                Subject: `Root API call-${eventName} detected in Account-${accountAlias}`,
+                Message: JSON.stringify({ 'default': JSON.stringify(event) }),
+                MessageStructure: 'json'
+              };
+              
+              sns.publish(params, function(err, data) {
+                if (err) console.log(err, err.stack);
+                else     console.log(data);
+              });
+          }
+
+  RootActivityCloudwatchEventRule:
+    Type: AWS::Events::Rule
+    Properties: 
+      EventPattern: 
+        detail-type: 
+          - AWS API Call via CloudTrail
+          - AWS Console Sign In via CloudTrail
+        detail: 
+          userIdentity: 
+              type:
+                - Root
+      State: ENABLED
+      Targets:
+       - Arn: !GetAtt RootActivityLambda.Arn
+         Id: RootActivityCloudwatchEventRule
+  
+  LambdaPermission:
+    Type: AWS::Lambda::Permission
+    Properties: 
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref RootActivityLambda
+      Principal: events.amazonaws.com
+      SourceArn:  !GetAtt RootActivityCloudwatchEventRule.Arn
+
+    
